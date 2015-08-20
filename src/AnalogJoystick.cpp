@@ -23,6 +23,10 @@
 
 #include "AnalogJoystick.h"
 
+// Signature to validate calibration data
+#define CALDATA_SIGNATURE 0xCA1B
+
+
 bool AnalogJoystick::begin (const byte nAxes, const byte axisPins[], const byte nButtons, const byte buttonPins[]) {
   if (nAxes > MAX_AXES)
     return false;
@@ -87,23 +91,28 @@ bool AnalogJoystick::calibrate (const int ledPin) {
 //    Serial.println (joyAxes[i].max);
 //  }
 
-    // signal the end of the calibration period
+    // Signal the user to let go of all levers
     if (ledPin >= 0)
       digitalWrite (ledPin, HIGH);
 
+    // Wait a bit to make sure user accomplishes
     delay (2000);
 
+    // Sample center positions
     for (int i = 0; i < nAxes; ++i) {
       axes[i].center = analogRead (axes[i].pin);
     }
 
+    // Turn off led to signal calibration is complete
     if (ledPin >= 0)
       digitalWrite (ledPin, LOW);
   } else {
     // Do a calibration pass
 
+    // Calculate time to blink led for
     int interval = 500;
     if (millis () - start_time >= CALIBRATION_DURATION * 1000L - 2000)
+      // Blink faster as end of calibration approaches
       interval = 150;
 
     if (ledPin >= 0 && millis () - led_changed > interval) {
@@ -111,10 +120,11 @@ bool AnalogJoystick::calibrate (const int ledPin) {
       led_changed = millis ();
     }
 
+    // Check if axes have mover over the current bounds
     for (int i = 0; i < nAxes; ++i) {
       int x = analogRead (axes[i].pin);
 
-      // record the maximum sensor value
+      // New maximum
       if (x > axes[i].max) {
         //Serial.print ("New max X = " );
         //Serial.println (x);
@@ -122,7 +132,7 @@ bool AnalogJoystick::calibrate (const int ledPin) {
         axes[i].max = x;
       }
 
-      // record the minimum sensor value
+      // New minimum
       if (x < axes[i].min) {
         //Serial.print("New min x = " );
         //Serial.println (x);
@@ -135,16 +145,20 @@ bool AnalogJoystick::calibrate (const int ledPin) {
   return calibrated;
 }
 
-void AnalogJoystick::calibrate (const int axisBounds[]) {
-  for (int i = 0; i < nAxes * 3; i += 3) {
-    Axis& axis = axes[i / 3];
+bool AnalogJoystick::calibrate (const CalibrationData& calData) {
+  if (isCalibrationDataValid (calData)) {
+    for (int i = 0; i < nAxes * 3; i += 3) {
+      Axis& axis = axes[i / 3];
 
-    axis.min = axisBounds[i];
-    axis.center = axisBounds[i + 1];
-    axis.max = axisBounds[i + 2];;
+      axis.min = calData.bounds[i];
+      axis.center = calData.bounds[i + 1];
+      axis.max = calData.bounds[i + 2];;
+    }
+
+    calibrated = true;
   }
 
-  calibrated = true;
+  return calibrated;
 }
 
 void AnalogJoystick::read () {
@@ -174,90 +188,11 @@ void AnalogJoystick::read () {
   }
 }
 
-#if 0
-void loop () {
-  if (!calibrated) {
-    calibrate ();
-  } else {
-  // Convert data for UnoJoy
-  dataForController_t controllerData = getBlankDataForController ();
-
-  for (int i = 0; i < N_AXES; ++i) {
-    int sensorValue = analogRead (axisPins[i]);
-
-    // If we have calibration values, use them
-    if (sensorValue > joyAxes[i].center) {
-      outputValue = map (sensorValue, joyAxes[i].center, joyAxes[i].max, 129, 255);
-    } else if (sensorValue < joyAxes[i].center) {
-      outputValue = map (sensorValue, joyAxes[i].min, joyAxes[i].center, 0, 127);
-    } else {
-      // Centered
-      outputValue = 128;
-    }
-
-    // Just in case the sensor value is outside the range seen during calibration
-    outputValue = constrain (outputValue, 0, 255);
-
-    // print the results to the serial monitor:
-//    Serial.print (axisNames[i]);
-//    Serial.print ("=");
-//    Serial.print (outputValue);
-//    Serial.print (" ");
-    //Serial.print("\t output = ");
-    //Serial.println(outputValue);
-
-    switch (i) {
-      case 0:
-        // uint8_t
-        //  0 is fully left or up
-        //  255 is fully right or down
-        //  128 is centered.
-        controllerData.leftStickX = (uint8_t) abs (outputValue - 255);
-        break;
-      case 1:
-        controllerData.leftStickY = (uint8_t) abs (outputValue - 255);
-        break;
-      default:
-        break;
-    }
-  }
-//  Serial.println ("");
-//
-//  Serial.print ("Buttons pressed: ");
-  for (int i = 0; i < N_BUTTONS; ++i) {
-    if (digitalRead (buttonPins[i]) == LOW) {
-//      Serial.print (buttonNames[i]);
-//      Serial.print (" ");
-
-
-      switch (i) {
-        case 0:
-          controllerData.crossOn = 1;
-          break;
-        case 1:
-          controllerData.squareOn = 1;
-          break;
-        default:
-          break;
-      }
-    }
-  }
-//  Serial.println ("");
-
-//  Serial.print ("To UnoJoy: X=");
-//  Serial.print (controllerData.leftStickX);
-//  Serial.print (" Y=");
-//  Serial.println (controllerData.leftStickY);
-  // Go!
-  }
-}
-#endif
-
 int AnalogJoystick::getAxis (byte axisNo) const {
   if (axisNo < nAxes)
     return axes[axisNo].value;
   else
-    return 0;
+    return AXIS_CENTER_VALUE;
 }
 
 bool AnalogJoystick::getButton (byte buttonNo) const {
@@ -269,4 +204,29 @@ bool AnalogJoystick::getButton (byte buttonNo) const {
 
 bool AnalogJoystick::isCalibrated () const {
   return calibrated;
+}
+
+AnalogJoystick::CalibrationData AnalogJoystick::getCalibrationData () const {
+  AnalogJoystick::CalibrationData calData;
+
+  calData.nAxes = nAxes;
+  for (int i = 0; i < MAX_AXES * 3; i += 3) {
+    if (i < nAxes * 3) {
+      const AnalogJoystick::Axis& axis = axes[i / 3];
+      calData.bounds[i] = axis.min;
+      calData.bounds[i + 1] = axis.center;
+      calData.bounds[i + 2] = axis.max;
+    } else {
+      calData.bounds[i] = -1;
+      calData.bounds[i + 1] = -1;
+      calData.bounds[i + 2] = -1;
+    }
+  }
+  calData.signature = CALDATA_SIGNATURE;
+
+  return calData;
+}
+
+bool AnalogJoystick::isCalibrationDataValid (const AnalogJoystick::CalibrationData& calData) const {
+  return calData.signature == CALDATA_SIGNATURE && calData.nAxes == nAxes;
 }

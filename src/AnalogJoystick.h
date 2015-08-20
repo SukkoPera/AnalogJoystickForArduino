@@ -17,8 +17,9 @@
  * along with AnalogJoystick. If not, see <http://www.gnu.org/licenses/>.  *
  ***************************************************************************/
 
-#include "Arduino.h"
+#include <Arduino.h>
 
+// Feel free to raise these, in case
 #define MAX_AXES 4
 #define MAX_BUTTONS 8
 
@@ -36,15 +37,32 @@
 
 class AnalogJoystick {
 public:
+  // This structure shouldn't be accessed directly
+  struct CalibrationData {
+    // Number of axes calibration data is for
+    int nAxes;
+
+    // A (min, center, max) tuple for every axis
+    int bounds[MAX_AXES * 3];
+
+    /* A signature, having it at the end ensures data has the correct number of
+     * bytes
+     */
+    word signature;
+  };
+
+  CalibrationData getCalibrationData () const;
+  bool isCalibrationDataValid (const CalibrationData& calData) const;
+
   bool begin (const byte nAxes, const byte axisPins[], const byte nButtons, const byte buttonPins[]);
 
+  // This function must be called in a loop, until isCalibrated () returns true
   bool calibrate (const int ledPin = -1);
 
-  /* WARNING: You have to make sure that the array contains a (min,center,max)
-   * tuple for every axis!
-   */
-  void calibrate (const int axisBounds[]);
+  // This function must be called only once
+  bool calibrate (const CalibrationData& calData);
 
+  // Reads the current state of the joystick
   void read ();
 
   struct Axis {

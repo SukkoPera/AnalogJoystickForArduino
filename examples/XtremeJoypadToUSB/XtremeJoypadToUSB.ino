@@ -17,14 +17,15 @@
  * along with AnalogJoystick. If not, see <http://www.gnu.org/licenses/>.  *
  ***************************************************************************
  *
- * This sketch is specific for one of my joypads, from Xtreme. Even though
- * it's nothing fancy, it was my first PlayStation-like joypad, so I'm
- * particularly fond of it.
- * 
+ * This sketch is similar to AnalogJoyToUSB, but has been tailored to one of my
+ * joypads: an old one from Xtreme. Even though it's nothing fancy, it was my
+ * first PlayStation-like joypad, so I'm particularly fond of it.
+ *
  * Besides useless autofire functions, this joypad has 8 buttons. The first
  * four buttons are reported directly, while the other ones are reported as
  * two more axes. So, at least this will show how to convert axes to buttons.
- * 
+ * Not that it's particularly hard...
+ *
  * Note that due to the way they work, if L1 and L2 are pressed
  * simultaneously, only L1 will be reported. Ditto for R1 and R2.
  */
@@ -42,18 +43,7 @@
  */
 #define MIN_DELTA 30
 
-struct CalibrationData {
-  // A (min, center, max) tuple for every axis
-  int bounds[N_AXES * 3];
-
-  /* A signature, having it at the end ensures data has the correct number of
-   * axes
-   */
-  word signature;
-};
-
-#define SIGNATURE 0xCA1B
-
+// EEPROM address at which calibration data is saved/loaded
 #define EEPROM_ADDR 0
 
 
@@ -70,44 +60,35 @@ AnalogJoystick joystick;
 void setup () {
   joystick.begin (N_AXES, axisPins, N_BUTTONS, buttonPins);
 
-  bool doCalibration = false;
+  bool calibrationNeeded = false;
 
   // If button 1 is pressed, force calibration
   joystick.read ();
   if (joystick.getButton (0))
-    doCalibration = true;
+    calibrationNeeded = true;
 
   // See if we have calibration data handy
-  if (!doCalibration) {
-    CalibrationData calData;
+  if (!calibrationNeeded) {
+    AnalogJoystick::CalibrationData calData;
     EEPROM.get (EEPROM_ADDR, calData);
-    if (calData.signature == SIGNATURE)
-      joystick.calibrate (calData.bounds);
-    else
-      doCalibration = true;
+    calibrationNeeded = !joystick.calibrate (calData);
   }
 
-  if (doCalibration) {
+  if (calibrationNeeded) {
     // Calibrate
     while (!joystick.isCalibrated ())
       joystick.calibrate (LED_BUILTIN);
 
     // Save calibration data for next time
-    CalibrationData calData;
-    for (int i = 0; i < N_AXES * 3; i += 3) {
-      AnalogJoystick::Axis& axis = joystick.axes[i / 3];
-      calData.bounds[i] = axis.min;
-      calData.bounds[i + 1] = axis.center;
-      calData.bounds[i + 2] = axis.max;
-    }
-    calData.signature = SIGNATURE;
+    AnalogJoystick::CalibrationData calData = joystick.getCalibrationData ();
     EEPROM.put (EEPROM_ADDR, calData);
   }
 
-  setupUnoJoy ();
-
   // For the LED, in case it wasn't done by calibrate()
   pinMode (LED_BUILTIN, OUTPUT);
+
+  // Init UnoJoy
+  setupUnoJoy ();
 }
 
 void loop () {
@@ -134,7 +115,6 @@ void loop () {
                              controllerData.crossOn | controllerData.circleOn |
                              controllerData.l1On | controllerData.l2On |
                              controllerData.r1On | controllerData.r2On);
-  
+
   setControllerData (controllerData);
 }
-
