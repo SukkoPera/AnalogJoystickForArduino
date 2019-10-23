@@ -30,6 +30,7 @@
  * - When the LED turns off, calibration is complete.
  */
 
+#include <EEPROM.h>
 #include <AnalogJoystick.h>
 
 #define N_BUTTONS 2
